@@ -15,7 +15,7 @@ settings = {
         "host": "127.0.0.1",
         "user": "root",
         "password": "111111",
-        "name": "message",
+        "name": "tornado_luntan",
         "port": 3306
     },
     "redis":{
@@ -24,5 +24,5 @@ settings = {
 }
 
 database = peewee_async.MySQLDatabase(
-    'mxforum', host="127.0.0.1", port=3306, user="root", password="111111"
+    'tornado_luntan', host="127.0.0.1", port=3306, user="root", password="111111"
 )

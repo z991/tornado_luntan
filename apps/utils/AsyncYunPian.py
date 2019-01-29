@@ -20,6 +20,7 @@ class AsyncYunPian:
         res = await http_client.fetch(post_request)
         return json.loads(res.body.decode("utf8"))
 
+
 if __name__ == "__main__":
     import tornado
     io_loop = tornado.ioloop.IOLoop.current()
