@@ -2,21 +2,49 @@ import os
 import uuid
 import json
 import aiofiles
+from playhouse.shortcuts import model_to_dict
 
 from MxForm.handler import RedisHandler
 from apps.utils.mxform_decorators import authenticated_async
-from apps.community.forms import CommunityGroupForm
+from apps.community.forms import CommunityGroupForm, GroupApplyForm
 from apps.community.models import CommunityGroup, CommunityGroupMember
+from apps.utils.util_func import json_serial
 
 
 class GroupHandler(RedisHandler):
+
     async def get(self, *args, **kwargs):
-        pass
+        # 获取小组列表
+        re_data = []
+        community_query = CommunityGroup.extend()
+
+        # 根据类别进行过滤
+        c = self.get_argument("c", None)
+        if c:
+            community_query = community_query.filter(CommunityGroup.category==c)
+
+        # 根据参数进行排序
+        order = self.get_argument("o", None)
+        if order:
+            if order == "new":
+                community_query = community_query.order_by(CommunityGroup.add_time.desc())
+            elif order == "hot":
+                community_query = community_query.order_by(CommunityGroup.member_nums.desc())
+
+        limit = self.get_argument("limit", None)
+        if limit:
+            community_query = community_query.limit(int(limit))
+        groups = await self.application.objects.execute(community_query)
+        for group in groups:
+            group_dict = model_to_dict(group)
+            group_dict["front_image"] = "{}/media/{}".format(self.settings["SITE_URL"], group_dict["front_image"])
+            re_data.append(group_dict)
+        self.finish(json.dumps(re_data, default=json_serial))
+
+
     @authenticated_async
     async def post(self, *args, **kwargs):
         re_data = {}
-        print("kwargs===", self.request.files)
-        print('files===', type(self.request.files), self.request.files)
 
         # 不能使用jsonform
         group_form = CommunityGroupForm(self.request.body_arguments)
@@ -31,21 +59,20 @@ class GroupHandler(RedisHandler):
                 # 完成图片保存并将值设置给对应的记录
                 # 通过aiofiles写文件
                 # 1. 文件名
-                new_filename = ""
-                for meta in files_meta:
-                    filename = meta["filename"]
-                    # 新的文件名
-                    new_filename = "{uuid}_{filename}".format(uuid=uuid.uuid1(), filename=filename)
-                    # 新的文件路径
-                    files_path = os.path.join(self.settings["MEDIA_ROOT"], new_filename)
-                    # 将上传的文件写入到存储文件夹
-                    async with aiofiles.open(files_path, 'wb') as f:
-                        await f.write(meta["body"])
+                meta = files_meta[0]
+                filename = meta["filename"]
+                # 新的文件名
+                new_filename = "{uuid}_{filename}".format(uuid=uuid.uuid1(), filename=filename)
+                # 新的文件路径
+                files_path = os.path.join(self.settings["MEDIA_ROOT"], new_filename)
+                # 将上传的文件写入到存储文件夹
+                async with aiofiles.open(files_path, 'wb') as f:
+                    await f.write(meta["body"])
 
                 group = await self.application.objects.create(CommunityGroup,
                                                               creator=self.current_user,name=group_form.name.data,
-                                                              category=group_form.category.data,desc=group_form.desc.data,
-                                                              notice=group_form.notice.data,from_image=new_filename)
+                                                              category=group_form.category.data, desc=group_form.desc.data,
+                                                              notice=group_form.notice.data, front_image=new_filename)
                 re_data["id"] = group.id
         else:
             self.set_status(400)
@@ -53,12 +80,41 @@ class GroupHandler(RedisHandler):
                 re_data[field] = group_form.errors[field][0]
         self.finish(re_data)
 
+
 class GroupDetailHanlder(RedisHandler):
     pass
 
 
 class GroupMemberHandler(RedisHandler):
-    pass
+
+    # 申请加入小组
+    @authenticated_async
+    async def post(self, group_id, *args, **kwargs):
+        re_data = {}
+        param = self.request.body.decode("utf8")
+        param = json.loads(param)
+
+        form = GroupApplyForm.from_json(param)
+        if form.validate():
+            try:
+                group = await self.application.objects.get(CommunityGroup, id=int(group_id))
+                existed = await self.application.objects.get(CommunityGroupMember, community=group, user=self.current_user)
+                self.set_status(400)
+                re_data["non_fields"] = "用户已经加入"
+
+            except CommunityGroup.DoesNotExist as e:
+                self.set_status(404)
+            except CommunityGroupMember.DoesNotExist as e:
+                community_member = await self.application.objects.create(CommunityGroupMember, community=group,
+                                                                         user=self.current_user,
+                                                                         apply_reason=form.apply_reason.data)
+                re_data["id"] = community_member.id
+        else:
+            self.set_status(400)
+            for field in form.errors:
+                re_data[field] = form.errors[field][0]
+
+        self.finish(re_data)
 
 
 class PostHandler(RedisHandler):

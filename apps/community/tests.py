@@ -8,14 +8,14 @@ from MxForm.settings import settings
 
 web_site_url = "http://127.0.0.1:8000"
 
-data = jwt.encode({
+jwt_data = jwt.encode({
     "name": "bobby",
     "id":1,
     "exp":current_time
 }, settings["secret_key"]).decode("utf-8")
 
 headers = {
-    "tsessionid": data
+    "tsessionid": jwt_data
 }
 
 def new_group():
@@ -33,6 +33,18 @@ def new_group():
     print(res.status_code)
     print(json.loads(res.text))
 
+
+def apply_group(group_id):
+    data = {
+        "apply_reason": "nihaoa,develop",
+    }
+    res = requests.post("{}/groups/{}/members/".format(web_site_url, group_id), headers=headers, json=data)
+    print(res.status_code)
+    print(json.loads(res.text))
+
 if __name__ == "__main__":
     # 新建小组
-    new_group()
+    # new_group()
+
+    # 申请加入小组
+    apply_group(2)
