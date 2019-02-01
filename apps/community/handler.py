@@ -6,8 +6,8 @@ from playhouse.shortcuts import model_to_dict
 
 from MxForm.handler import RedisHandler
 from apps.utils.mxform_decorators import authenticated_async
-from apps.community.forms import CommunityGroupForm, GroupApplyForm
-from apps.community.models import CommunityGroup, CommunityGroupMember
+from apps.community.forms import CommunityGroupForm, GroupApplyForm, PostForm
+from apps.community.models import CommunityGroup, CommunityGroupMember, Post
 from apps.utils.util_func import json_serial
 
 
@@ -82,7 +82,27 @@ class GroupHandler(RedisHandler):
 
 
 class GroupDetailHanlder(RedisHandler):
-    pass
+
+    @authenticated_async
+    async def get(self,group_id, *args, **kwargs):
+        # 获取小组的基本信息
+        re_data = {}
+        try:
+            group = await self.application.objects.get(CommunityGroup, id=int(group_id))
+            item_dict = {}
+            item_dict["name"] = group.name
+            item_dict["id"] = group.id
+            item_dict["desc"] = group.desc
+            item_dict["notice"] = group.notice
+            item_dict["member_nums"] = group.member_nums
+            item_dict["post_nums"] = group.post_nums
+            item_dict["front_image"] = "{}/media/{}".format(self.settings["SITE_URL"], group.front_image)
+            re_data = item_dict
+
+        except CommunityGroup.DoesNotExist as e:
+            self.set_status(404)
+
+        self.finish(re_data)
 
 
 class GroupMemberHandler(RedisHandler):
@@ -118,7 +138,38 @@ class GroupMemberHandler(RedisHandler):
 
 
 class PostHandler(RedisHandler):
-    pass
+
+    @authenticated_async
+    async def post(self, group_id, *args, **kwargs):
+        """
+        小组内发帖
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        re_data = {}
+        try:
+            group = await self.application.objects.get(CommunityGroup, id=int(group_id))
+            group_member = await self.application.objects.get(CommunityGroupMember, user=self.current_user,
+                                                              community=group, status="agree")
+            param = self.request.body.decode("utf8")
+            param = json.loads(param)
+            form = PostForm.from_json(param)
+            if form.validate():
+                post = await self.application.objects.create(Post, user=self.current_user, title=form.title.data,
+                                                             content=form.content.data, group=group)
+                re_data["id"] = post.id
+            else:
+                self.set_status(400)
+                for field in form.errors:
+                    re_data[field] = form.errors[field][0]
+
+        except CommunityGroup.DoesNotExist as e:
+            self.set_status(404)
+        except CommunityGroupMember.DoesNotExist as e:
+            self.set_status(403)
+        self.finish(re_data)
+        pass
 
 
 class PostDetailHandler(RedisHandler):
