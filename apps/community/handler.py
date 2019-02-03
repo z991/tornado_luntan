@@ -51,7 +51,6 @@ class GroupHandler(RedisHandler):
         if group_form.validate():
             # 自己完成图片字段的认证
             files_meta = self.request.files.get("front_image", None)
-            print('files_meta===', type(files_meta), files_meta)
             if not files_meta:
                 self.set_status(400)
                 re_data["front_image"] = "请上传图片"
@@ -140,6 +139,43 @@ class GroupMemberHandler(RedisHandler):
 class PostHandler(RedisHandler):
 
     @authenticated_async
+    async def get(self, group_id, *args, **kwargs):
+        # 获取小组内的帖子
+        post_list = []
+        try:
+            group = await self.application.objects.get(CommunityGroup, id=int(group_id))
+            group_member = await self.application.objects.get(CommunityGroupMember, user=self.current_user,
+                                                              community=group, status="agree")
+            posts_query = Post.extend()
+            c = self.get_argument("c", None)
+
+            if c == "hot":
+                posts_query = posts_query.filter(Post.is_hot== True)
+            if c == "excellent":
+                posts_query = posts_query.filter(Post.is_excellent==True)
+
+            posts = await self.application.objects.execute(posts_query)
+
+            for post in posts:
+                item_dict = {
+                    "user": {
+                        "id": post.user.id,
+                        "nick_name": post.user.nick_name
+                    },
+                    "id": post.id,
+                    "title": post.title,
+                    "content":post.content,
+                    "comment_nums": post.comment_nums
+                }
+                post_list.append(item_dict)
+        except CommunityGroupMember.DoesNotExist as e:
+            self.set_status(403)
+        except CommunityGroup.DoesNotExist as e:
+            self.set_status(404)
+
+        self.finish(json.dumps(post_list))
+
+    @authenticated_async
     async def post(self, group_id, *args, **kwargs):
         """
         小组内发帖
@@ -169,12 +205,28 @@ class PostHandler(RedisHandler):
         except CommunityGroupMember.DoesNotExist as e:
             self.set_status(403)
         self.finish(re_data)
-        pass
 
 
 class PostDetailHandler(RedisHandler):
-    pass
+    @authenticated_async
+    async def get(self, post_id, *args, **kwargs):
+        # 获取某个帖子的详情
+        re_data = {}
+        post_details = await self.application.objects.execute(Post.extend().where(Post.id==int(post_id)))
+        re_count = 0
+        for data in post_details:
+            item_dict = {}
+            item_dict["user"] = model_to_dict(data.user)
+            item_dict["title"] = data.title
+            item_dict["content"] = data.content
+            item_dict["comment_nums"] = data.comment_nums
+            item_dict["add_time"] = data.add_time.strftime("%Y-%m-%d")
+            re_data = item_dict
+            re_count += 1
 
+        if re_count == 0:
+            self.set_status(404)
+        self.finish(json.dumps(re_data, default=json_serial))
 
 class PostCommentHanlder(RedisHandler):
     pass
